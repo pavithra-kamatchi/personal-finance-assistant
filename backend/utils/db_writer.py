@@ -2,39 +2,27 @@ from backend.api.models.schemas import TransactionDetails
 
 from backend.utils.db_connector import engine
 
+from sqlalchemy import text
+
 def add_transaction_record(transaction: TransactionDetails):
-    """Update transaction record in the database."""
-
-    # Connect to the database
-    conn = engine.connect()
-    # Create a cursor object
-    cur = conn.cursor()
-
-    # Insert the transaction record into the database
-    insert_query = """
+    """Adds a transaction record to the database."""
+    insert_query = text("""
         INSERT INTO transactions (
-            user_id,
-            transaction_date,
-            description,
-            transaction_amount,
-            category,
-            merchant,
-            account_name,
-            type
+            user_id, transaction_date, description, transaction_amount,
+            category, merchant, account_name, type
+        ) VALUES (
+            :user_id, :transaction_date, :description, :transaction_amount,
+            :category, :merchant, :account_name, :type
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    """
-    cur.execute(insert_query, (
-        transaction.user_id,
-        transaction.transaction_date,
-        transaction.description,
-        transaction.transaction_amount,
-        transaction.category,
-        transaction.merchant,
-        transaction.account_name,
-        transaction.type
-    ))
-    conn.commit()
-    cur.close()
-    conn.close()
-    
+    """)
+    with engine.begin() as conn:
+        conn.execute(insert_query, {
+            "user_id": transaction.user_id,
+            "transaction_date": transaction.transaction_date,
+            "description": transaction.description,
+            "transaction_amount": transaction.transaction_amount,
+            "category": transaction.category,
+            "merchant": transaction.merchant,
+            "account_name": transaction.account_name,
+            "type": transaction.type,
+        })
