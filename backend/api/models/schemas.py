@@ -18,3 +18,7 @@ class TransactionDetails(BaseModel):
     merchant: Optional[str] = Field(default = None, description = "The merchant or vendor associated with the transaction, inferred from the transaction description (e.g., 'Amazon', 'Starbucks').")
     account_name: Optional[str] = Field(default=None, description= "The name of the account from which the transaction was made (e.g., 'Checking', 'Savings').")
     type: Optional[str] = Field(default=None, description= "The type of transaction, typically 'debit' or 'credit'.")
+    
+class AuthInput(BaseModel):
+    email: str
+    password: str
