@@ -22,3 +22,7 @@ using (auth.uid() = user_id);
 create policy "User can insert insert their own transactions"
 on transactions for insert
 with check (auth.uid() = user_id);
+
+-- Add index to optimize foreign key performance
+create index concurrently if not exists idx_transactions_user_id
+  on transactions(user_id);
