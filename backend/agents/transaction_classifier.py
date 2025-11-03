@@ -41,12 +41,8 @@ openai_llm = ChatOpenAI(
 check_parser = JsonOutputParser(pydantic_object=TransactionCheck)
 details_parser = JsonOutputParser(pydantic_object=TransactionDetails)
 
+#agent that classifies transactions and validates user input
 class TransactionClassifierAgent:
-    """
-    This class contains methods to classify transactions and validate user input.
-    It uses LLMs to determine if a text describes a transaction and to classify the transaction details.
-    """
-
     def __init__(self):
         self.tgt_llm = tgt_llm
         self.openai_llm = openai_llm
@@ -82,7 +78,7 @@ class TransactionClassifierAgent:
         "category": "string",
         "merchant": "string",
         "account_name": "checking", "savings", or null
-        "type": "debit", "credit", or null
+        "type": "income", "expense", or null
         }}}}"""),
         ("user", "{text}")
         ])
@@ -129,28 +125,85 @@ class TransactionClassifierAgent:
         logger.info(f"Extraction complete - Is transaction: {result.is_transaction}, Confidence: {result.confidence_score:.2f}")
         return result
 
+    #process uploaded transactions with error handling
     def process_uploaded_transactions(self, inputs: List[dict], user_id: str) -> Optional[List[TransactionDetails]]:
-        #Implementing the prompt chain with gate check
-        logger.info("Processing the uploaded transaction")
+        logger.info(f"Processing {len(inputs)} uploaded transactions")
         results = []
+        errors = []
 
-        #check if the user inputted a valid transaction
-        for transaction in inputs:
-            validation = self.transaction_validation(transaction)
-            #if validation fails, skip the transaction
-            if validation.confidence_score < 0.7 or validation.is_transaction == False:
-                logger.warning(
-            f"Gate check failed - is_transaction: {validation.is_transaction}, confidence: {validation.confidence_score:.2f}"
-            )
-                logger.info("Gate check failed, skipping transaction processing")
+        # Check if inputs is empty
+        if not inputs:
+            logger.warning("No transactions provided to process")
+            return []
+
+        # Process each transaction with robust error handling
+        for idx, transaction in enumerate(inputs):
+            try:
+                # Validate transaction has required fields
+                if not isinstance(transaction, dict):
+                    logger.error(f"Transaction {idx} is not a dictionary: {type(transaction)}")
+                    errors.append(f"Row {idx}: Invalid format")
+                    continue
+
+                if "description" not in transaction or not transaction["description"]:
+                    logger.error(f"Transaction {idx} missing 'description' field")
+                    errors.append(f"Row {idx}: Missing description")
+                    continue
+
+                # Make sure it's a valid transaction
+                logger.info(f"Validating transaction {idx + 1}/{len(inputs)}")
+                try:
+                    validation = self.transaction_validation(transaction)
+                except Exception as e:
+                    logger.error(f"Validation error for transaction {idx}: {e}")
+                    errors.append(f"Row {idx}: Validation failed - {str(e)}")
+                    continue
+
+                # Check validation results
+                if validation.confidence_score < 0.7 or not validation.is_transaction:
+                    logger.warning(
+                        f"Transaction {idx} failed gate check - "
+                        f"is_transaction: {validation.is_transaction}, "
+                        f"confidence: {validation.confidence_score:.2f}"
+                    )
+                    errors.append(
+                        f"Row {idx}: Not a valid transaction "
+                        f"(confidence: {validation.confidence_score:.2f})"
+                    )
+                    continue
+
+                # Classify the transaction
+                logger.info(f"Gate check passed for transaction {idx}, proceeding with classification")
+                try:
+                    transaction_info = self.LLMTransactionClassifierTool(transaction)
+
+                    # Ensure it's a TransactionDetails object
+                    if not isinstance(transaction_info, TransactionDetails):
+                        transaction_info = TransactionDetails(**transaction_info)
+
+                    # Add user_id
+                    transaction_info = transaction_info.model_copy(update={"user_id": user_id})
+
+                    logger.info(f"Transaction {idx} processed successfully: {transaction_info.description[:50]}...")
+                    results.append(transaction_info)
+
+                except Exception as e:
+                    logger.error(f"Classification error for transaction {idx}: {e}")
+                    errors.append(f"Row {idx}: Classification failed - {str(e)}")
+                    continue
+
+            except Exception as e:
+                logger.error(f"Unexpected error processing transaction {idx}: {e}")
+                errors.append(f"Row {idx}: Unexpected error - {str(e)}")
                 continue
-            #if validation passes, classify the transaction
-            else:
-                logger.info("Gate check passed, proceeding with transaction processing")
-                transaction_info = self.LLMTransactionClassifierTool(transaction)
-                if not isinstance(transaction_info, TransactionDetails):
-                    transaction_info = TransactionDetails(**transaction_info)
-                transaction_info = transaction_info.model_copy(update={"user_id": user_id})
-                logger.info(f"Transaction processed: {transaction_info}")
-                results.append(transaction_info)
+
+        # Log the summary
+        logger.info(
+            f"Transaction processing complete: "
+            f"{len(results)} succeeded, {len(errors)} failed out of {len(inputs)} total"
+        )
+
+        if errors:
+            logger.warning(f"Errors encountered: {errors[:5]}")  # Log first 5 errors
+
         return results if results else []
