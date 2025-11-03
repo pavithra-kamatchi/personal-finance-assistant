@@ -22,3 +22,12 @@ class TransactionDetails(BaseModel):
 class AuthInput(BaseModel):
     email: str
     password: str
+
+
+class Budget(BaseModel):
+    id: Optional[str] = Field(default=None, description="supabase-generated id")
+    user_id: str = Field(description="User ID to associate with Supabase Auth user")
+    category: str = Field(description="Spending category (e.g., 'Groceries', 'Dining', 'Transportation')")
+    monthly_limit: float = Field(description="Monthly budget limit for this category")
+    period: Optional[str] = Field(default="monthly", description="Budget period (e.g., 'monthly', 'weekly', 'yearly')")
+    created_at: Optional[str] = Field(default=None, description="Timestamp when budget was created")

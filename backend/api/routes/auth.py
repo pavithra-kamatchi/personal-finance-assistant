@@ -1,18 +1,16 @@
-from wsgiref import headers
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
-import jwt
 import os
 from  supabase import create_client, Client
 from pydantic import BaseModel
 from starlette.status import HTTP_401_UNAUTHORIZED
 from dotenv import load_dotenv
 import requests
-from jwt import decode, get_unverified_header, PyJWTError
-from jwt.algorithms import RSAAlgorithm
 from backend.api.models.schemas import AuthInput
 
 auth_router = APIRouter()
+security = HTTPBearer() 
 load_dotenv()
 
 # Load environment variables
@@ -59,7 +57,7 @@ def login(payload: AuthInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Function to get the current user based on the JWT token
-
+'''
 def get_current_user(authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Missing or invalid Authorization header")
@@ -71,6 +69,18 @@ def get_current_user(authorization: Optional[str] = Header(None)):
     }
     resp = requests.get(f"{SUPABASE_URL}/auth/v1/user", headers=headers)
     # Check if the response is successful
+    if resp.status_code != 200:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token verification failed")
+    user_info = resp.json()
+    return user_info["id"]
+'''
+def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
+    token = credentials.credentials  # Extract token string
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "apikey": SUPABASE_KEY
+    }
+    resp = requests.get(f"{SUPABASE_URL}/auth/v1/user", headers=headers)
     if resp.status_code != 200:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token verification failed")
     user_info = resp.json()

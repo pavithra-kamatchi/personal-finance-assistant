@@ -1,45 +1,152 @@
 import pandas as pd
-from typing import Optional, List
+from typing import List
 import io
+import logging
 
-DESCRIPTION_KEYS = ["description", "name", "details", "memo", "transaction_name", "transaction_description", "note", "transaction_note", "transaction_details"]
+logger = logging.getLogger(__name__)
 
-# Function to determine the description field in a CSV row
-def infer_description_field(row: dict) -> Optional[str]:
-    for key in row:
-        if key.lower() in DESCRIPTION_KEYS:
-            return key
-    # Fallback: use longest string field as the best guess for the description
-    string_val_dict = {k: v for k, v in row.items() if isinstance(v, str)}
-    if not string_val_dict:
-        return None
-    return max(string_val_dict.items(), key=lambda item: len(item[1]))[0]
+def clean_row_data(row: dict) -> dict:
+    """
+    Clean row data by removing NaN values and converting to JSON-serializable format.
 
-# Function to parse CSV file and infer the description field
+    Args:
+        row: Dictionary representing a CSV row
+
+    Returns:
+        Cleaned dictionary
+    """
+    cleaned = {}
+    for key, value in row.items():
+        # Skip NaN/None values
+        if pd.isna(value) or value is None:
+            continue
+
+        # Convert numpy types to Python types
+        if hasattr(value, 'item'):
+            value = value.item()
+
+        cleaned[key] = value
+
+    return cleaned
+
+def row_to_description(row: dict) -> str:
+    """
+    Convert an entire CSV row into a descriptive string that the LLM can parse.
+    This allows the LLM to intelligently extract transaction details regardless of column names.
+
+    Args:
+        row: Dictionary representing a CSV row
+
+    Returns:
+        A formatted string containing all row information
+    """
+    cleaned_row = clean_row_data(row)
+
+    if not cleaned_row:
+        return ""
+
+    # Format as a natural language description
+    parts = []
+    for key, value in cleaned_row.items():
+        # Create key-value pairs in a readable format
+        parts.append(f"{key}: {value}")
+
+    # Join all parts with commas
+    description = ", ".join(parts)
+
+    return description
+
+def validate_row(row: dict) -> bool:
+    """
+    Validate that a row has at least some data.
+
+    Args:
+        row: Dictionary representing a CSV row
+
+    Returns:
+        True if row has data, False otherwise
+    """
+    cleaned = clean_row_data(row)
+    return len(cleaned) > 0
+
 def parse_csv_bytes(file_bytes: bytes) -> List[dict]:
+    """
+    Parse CSV file bytes and convert each row into a format the LLM can understand.
+    Instead of trying to map columns, we pass the entire row data to the LLM
+    which will intelligently extract transaction details.
+
+    Args:
+        file_bytes: Raw bytes of the CSV file
+
+    Returns:
+        List of dictionaries with 'description' field containing all row data
+    """
     try:
+        # Try UTF-8 encoding first
         csv_string = file_bytes.decode('utf-8')
         df = pd.read_csv(io.StringIO(csv_string))
-        data = df.to_dict(orient='records')
-        print("------------------------------------------")
-        print("CSV data:", data)
-        print("------------------------------------------")
-        for row in data:
-            print("Row Type:", type(row))
-            description_key = infer_description_field(row)
-            if description_key and description_key != "description":
-                row["description"] = row[description_key]
-                del row[description_key]
-        print("Processed data:", data)
-        print("------------------------------------------")
-        return data
+
+        logger.info(f"CSV loaded with {len(df)} rows and columns: {df.columns.tolist()}")
+
+    except UnicodeDecodeError:
+        # Fallback to latin-1 encoding
+        logger.warning("UTF-8 decode failed, trying latin-1 encoding")
+        try:
+            csv_string = file_bytes.decode('latin-1')
+            df = pd.read_csv(io.StringIO(csv_string))
+            logger.info(f"CSV loaded with latin-1 encoding: {len(df)} rows")
+        except Exception as e:
+            logger.error(f"Failed to decode CSV with latin-1: {e}")
+            return []
 
     except pd.errors.EmptyDataError:
-        print("CSV file is empty.")
+        logger.error("CSV file is empty")
         return []
-    except pd.errors.ParserError:
-        print("Error parsing CSV file. Please check the format.")
+
+    except pd.errors.ParserError as e:
+        logger.error(f"Error parsing CSV file: {e}")
         return []
+
     except Exception as e:
-        print(f"Error reading CSV: {e}")
+        logger.error(f"Unexpected error reading CSV: {e}")
         return []
+
+    # Check if DataFrame is empty
+    if df.empty:
+        logger.warning("CSV file has no data rows")
+        return []
+
+    # Convert to list of dictionaries
+    data = df.to_dict(orient='records')
+
+    # Transform each row into LLM-friendly format
+    processed_data = []
+    for idx, row in enumerate(data):
+        try:
+            if not validate_row(row):
+                logger.warning(f"Row {idx} has no valid data, skipping")
+                continue
+
+            # Convert entire row to a descriptive string
+            description = row_to_description(row)
+
+            if not description or len(description) < 5:
+                logger.warning(f"Row {idx} produced empty or too short description, skipping")
+                continue
+
+            # Pass the entire row as description for the LLM to parse
+            processed_row = {
+                "description": description,
+                "raw_data": clean_row_data(row)  # Keep raw data for reference
+            }
+
+            processed_data.append(processed_row)
+            logger.debug(f"Row {idx} processed: {description[:100]}...")
+
+        except Exception as e:
+            logger.error(f"Error processing row {idx}: {e}")
+            continue
+
+    logger.info(f"Successfully processed {len(processed_data)} out of {len(data)} rows")
+
+    return processed_data
