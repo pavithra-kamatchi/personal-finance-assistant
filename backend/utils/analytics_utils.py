@@ -112,23 +112,24 @@ def empty_response_json(chart_type: str = None, message: str = "No data found") 
 #format a single transaction record as a dictionary
 def format_transaction_record(row: pd.Series) -> Dict[str, Any]:
     return {
-        "id": row["id"],
-        "date": row["transaction_date"].strftime("%Y-%m-%d"),
-        "description": row["description"],
-        "merchant": row.get("merchant"),
-        "category": row.get("category"),
+        "id": str(row["id"]),
+        "date": row["transaction_date"].strftime("%Y-%m-%d") if pd.notnull(row["transaction_date"]) else None,
+        "description": str(row["description"]),
+        "merchant": str(row["merchant"]) if "merchant" in row and pd.notnull(row["merchant"]) else None,
+        "category": str(row["category"]) if "category" in row and pd.notnull(row["category"]) else None,
         "amount": round(float(row["transaction_amount"]), 2),
-        "type": row["type"],
-        "account": row.get("account_name")
+        "type": str(row["type"]),
+        "account": str(row["account_name"]) if "account_name" in row and pd.notnull(row["account_name"]) else None
     }
 
-#format multiple transactions as a list of dictionaries
 def format_transactions_list(df: pd.DataFrame, limit: int = 10) -> List[Dict[str, Any]]:
+    # drop duplicates
+    df = df.drop_duplicates(subset=["id", "transaction_date", "transaction_amount"])
+    
     return [
         format_transaction_record(row)
         for _, row in df.head(limit).iterrows()
     ]
-
 
 # ========================
 # Category Breakdown Utilities
