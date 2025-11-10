@@ -7,6 +7,7 @@ import pandas as pd
 #detect anomalous transactions using Z-score to flag transactions that are unusually high compared to user's typical spending
 @tool
 def anomaly_detection_tool(user_id: str, std_threshold: float = 2.5) -> str:
+    """Detect anomalous transactions for a user based on Z-score method."""
     try:
         df = fetch_user_transactions(user_id)
 
