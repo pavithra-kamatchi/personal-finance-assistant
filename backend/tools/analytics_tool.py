@@ -31,9 +31,9 @@ llm = ChatOpenAI(
 
 # Analytics tools for financial data analysis and visualization
 
-#get monthly summary of income, expenses, and savings
 @tool
 def monthly_summary_tool(user_id: str, months: int = 12) -> str:
+    """Returns monthly summary of income, expenses, and savings"""
     try:
         df = get_user_transactions(user_id, months)
 
@@ -66,6 +66,7 @@ def monthly_summary_tool(user_id: str, months: int = 12) -> str:
 #get spending trends over time for line chart visualization
 @tool
 def spending_over_time_tool(user_id: str, months: int = 12) -> str:
+    """Returns spending trends over time"""
     try:
         df = get_user_transactions(user_id, months)
 
@@ -113,6 +114,7 @@ def spending_over_time_tool(user_id: str, months: int = 12) -> str:
 #compare income vs expenses over time for dual line/bar chart
 @tool
 def income_vs_expense_tool(user_id: str, months: int = 6) -> str:
+    """Returns income vs expenses comparison over time"""
     try:
         df = get_user_transactions(user_id, months)
 
@@ -157,6 +159,7 @@ def income_vs_expense_tool(user_id: str, months: int = 6) -> str:
 #get the top spending categories for pie chart or bar chart visualization
 @tool
 def top_categories_tool(user_id: str, limit: int = 10, months: int = 12) -> str:
+    """Returns top spending categories"""
     try:
         df = get_user_transactions(user_id, months)
 
@@ -207,8 +210,10 @@ def top_categories_tool(user_id: str, limit: int = 10, months: int = 12) -> str:
 #get the most recent transactions for table display
 @tool
 def recent_transactions_tool(user_id: str, limit: int = 10) -> str:
+    """Returns the 10 most recent transactions for a user"""
     try:
-        # Fetch all transactions (no time limit for recent)
+        # Fetch all transactions (no time limit for recent) 
+        # get rid of this and just use pandas to get first 10 isntead of fetching the entire df
         df = fetch_user_transactions(user_id)
 
         if df.empty:
@@ -231,6 +236,7 @@ def recent_transactions_tool(user_id: str, limit: int = 10) -> str:
 #generate AI-powered insights based on analytics data
 @tool
 def generate_insights_tool(data_json: str, chart_type: str) -> str:
+    """Returns AI-generated insights based on analytics data"""
     try:
         data = json.loads(data_json)
 
@@ -306,6 +312,7 @@ Focus on:
 #compare actual spending against budgeted amounts
 @tool
 def budget_comparison_tool(user_id: str, budget_json: str) -> str:
+    """Returns comparison of actual spending against budgeted amounts"""
     try:
         budget = json.loads(budget_json)
 

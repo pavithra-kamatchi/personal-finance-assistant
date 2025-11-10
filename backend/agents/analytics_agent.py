@@ -15,8 +15,7 @@ from backend.tools.analytics_tool import (
     income_vs_expense_tool,
     top_categories_tool,
     recent_transactions_tool,
-    generate_insights_tool,
-    budget_comparison_tool
+    generate_insights_tool
 )
 
 from backend.tools.anomaly_tool import anomaly_detection_tool
@@ -43,8 +42,7 @@ tools = [
     top_categories_tool,
     recent_transactions_tool,
     anomaly_detection_tool,
-    generate_insights_tool,
-    budget_comparison_tool
+    generate_insights_tool
 ]
 
 # Bind tools to the LLM
@@ -56,9 +54,8 @@ llm_with_tools = openai_llm.bind_tools(tools)
 # ========================
 
 class AnalyticsAgentState(MessagesState):
-    """Extended state for the Analytics agent with memory and budget."""
+    """Extended state for the Analytics agent with memory."""
     user_id: str
-    budget_data: Optional[Dict[str, float]] = None
     analytics_results: Dict[str, Any] = {}
 
 
@@ -118,7 +115,6 @@ analytics_agent = workflow.compile(checkpointer=memory)
 def generate_analytics(
     user_id: str,
     analytics_types: Optional[List[str]] = None,
-    budget_data: Optional[Dict[str, float]] = None,
     months: int = 6,
     max_iterations: int = 20
 ) -> Dict[str, Any]:
@@ -130,8 +126,7 @@ def generate_analytics(
         user_id: User ID to fetch transactions for
         analytics_types: List of analytics to generate (if None, generates all)
                         Options: ["monthly_summary", "spending_trends", "income_vs_expense",
-                                 "top_categories", "recent_transactions", "anomalies", "budget_comparison"]
-        budget_data: Optional budget data as {"category": amount}
+                                 "top_categories", "recent_transactions", "anomalies"]
         months: Number of months to analyze (default: 6)
         max_iterations: Maximum number of agent iterations (default: 20)
 
@@ -148,15 +143,12 @@ def generate_analytics(
             "recent_transactions",
             "anomalies"
         ]
-        if budget_data:
-            analytics_types.append("budget_comparison")
 
     # Create system message with instructions
     system_message = f"""You are a financial analytics assistant. Your job is to help users understand their spending patterns and financial health.
 
 User ID: {user_id}
 Months to analyze: {months}
-Budget provided: {"Yes" if budget_data else "No"}
 
 You have access to the following analytics tools:
 1. monthly_summary_tool - Calculate total income, expenses, and net savings per month
@@ -166,7 +158,6 @@ You have access to the following analytics tools:
 5. recent_transactions_tool - Get the most recent 10 transactions
 6. anomaly_detection_tool - Detect unusual/anomalous transactions
 7. generate_insights_tool - Generate AI insights for any analytics data
-8. budget_comparison_tool - Compare actual spending against budget (requires budget_data)
 
 Your task is to generate the following analytics: {', '.join(analytics_types)}
 
@@ -178,7 +169,6 @@ For each analytics type:
 Important:
 - Always pass the user_id to tools that require it
 - For time-based tools, use months={months}
-- For budget comparison, pass budget_json as JSON string: {json.dumps(budget_data) if budget_data else "N/A"}
 - Generate insights for EACH chart/analytics type
 - Be comprehensive and ensure all requested analytics are completed
 """
@@ -209,7 +199,6 @@ Make sure to complete all analytics and provide insights for each."""
                     HumanMessage(content=user_message)
                 ],
                 "user_id": user_id,
-                "budget_data": budget_data,
                 "analytics_results": {}
             },
             config=config
@@ -261,7 +250,6 @@ def extract_analytics_from_response(response: Dict[str, Any]) -> Dict[str, Any]:
         "top_categories_tool": "top_categories",
         "recent_transactions_tool": "recent_transactions",
         "anomaly_detection_tool": "anomalies",
-        "budget_comparison_tool": "budget_comparison",
         "generate_insights_tool": "insights"
     }
 
@@ -304,14 +292,13 @@ def extract_analytics_from_response(response: Dict[str, Any]) -> Dict[str, Any]:
 # Convenience Functions
 # ========================
 
-def get_dashboard_analytics(user_id: str, budget_data: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+def get_dashboard_analytics(user_id: str) -> Dict[str, Any]:
     """
     Get all analytics needed for a dashboard view.
     This is a convenience function that requests all analytics types.
 
     Args:
         user_id: User ID to fetch transactions for
-        budget_data: Optional budget data for comparison
 
     Returns:
         Complete analytics package for dashboard
@@ -319,7 +306,6 @@ def get_dashboard_analytics(user_id: str, budget_data: Optional[Dict[str, float]
     return generate_analytics(
         user_id=user_id,
         analytics_types=None,  # All analytics
-        budget_data=budget_data,
         months=6
     )
 
@@ -327,7 +313,6 @@ def get_dashboard_analytics(user_id: str, budget_data: Optional[Dict[str, float]
 def get_specific_analytics(
     user_id: str,
     analytics_type: str,
-    budget_data: Optional[Dict[str, float]] = None,
     months: int = 6
 ) -> Dict[str, Any]:
     """
@@ -336,7 +321,6 @@ def get_specific_analytics(
     Args:
         user_id: User ID to fetch transactions for
         analytics_type: Single analytics type to generate
-        budget_data: Optional budget data
         months: Number of months to analyze
 
     Returns:
@@ -345,7 +329,6 @@ def get_specific_analytics(
     return generate_analytics(
         user_id=user_id,
         analytics_types=[analytics_type],
-        budget_data=budget_data,
         months=months
     )
 
@@ -357,19 +340,12 @@ def get_specific_analytics(
 if __name__ == "__main__":
     # Test the analytics agent
     test_user = "123e4567-e89b-12d3-a456-426614174000"
-    test_budget = {
-        "Groceries": 500.0,
-        "Dining": 300.0,
-        "Transportation": 200.0,
-        "Entertainment": 150.0,
-        "Utilities": 250.0
-    }
 
     print("Testing Analytics Agent")
 
     try:
         # Test getting all analytics
-        result = get_dashboard_analytics(user_id=test_user, budget_data=test_budget)
+        result = get_dashboard_analytics(user_id=test_user)
 
         print("\nStatus:", result.get("status"))
         print("\nAnalytics Generated:")

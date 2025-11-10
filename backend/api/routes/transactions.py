@@ -4,7 +4,9 @@ from backend.utils.db_writer import add_transaction_record
 from backend.agents.transaction_classifier import TransactionClassifierAgent
 from backend.utils.csv_parser import parse_csv_bytes
 from fastapi import Request
-from fastapi.concurrency import run_in_threadpool
+
+from backend.agents.sql_nl_agent import text_to_sql
+from backend.agents.analytics_agent import analytics_agent
 transactions_router = APIRouter()
 transaction_agent= TransactionClassifierAgent()
 
@@ -26,25 +28,27 @@ async def uploaded_transactions(file: UploadFile = File(...), user_id=Depends(ge
     for tx in results:
         add_transaction_record(tx)
 
+    '''
+    # --- CACHE INVALIDATION ---
+    cache_key = f"dashboard_{user_id}"
+    if analytics_agent.memory.get(cache_key):
+        analytics_agent.memory.delete(cache_key)
+    '''
+
     return {"message": f"{len(results)} transactions stored successfully."}
+
 
 # Endpoint to get transactions based on natural language query
 @transactions_router.get("/query")
-async def get_transactions(nl_query: str, user_id: str = Depends(get_current_user)):
+def get_transactions(nl_query: str, user_id: str = Depends(get_current_user)):
     try:
-        # If using the new text_to_sql function:
-        from backend.agents.sql_nl_agent import text_to_sql
-
-        # Run in threadpool to avoid blocking
-        results = await run_in_threadpool(
-            text_to_sql,
+        results = text_to_sql(
             nl_query,
             str(user_id),
             [],  
         )
-
         return {
-            "results": results
+            "results": results,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
