@@ -19,7 +19,7 @@ def anomaly_detection_tool(user_id: str, std_threshold: float = 2.5) -> str:
             })
 
         # Filter expenses only
-        expense_df = df[df['type'] == 'debit'].copy()
+        expense_df = df[df['type'] == 'expense'].copy()
 
         if expense_df.empty:
             return json.dumps({
