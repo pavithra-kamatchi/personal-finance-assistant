@@ -73,8 +73,8 @@ def spending_over_time_tool(user_id: str, months: int = 12) -> str:
         if df.empty:
             return empty_response_json(chart_type="line")
 
-        # Filter expenses only (handle both type conventions)
-        expense_df = df[df["type"].isin(["expense", "debit"])].copy()
+        # Filter expenses only
+        expense_df = df[df["type"] == "expense"].copy()
 
         if expense_df.empty:
             return empty_response_json(chart_type="line", message="No expense transactions found")
@@ -167,7 +167,7 @@ def top_categories_tool(user_id: str, limit: int = 10, months: int = 12) -> str:
             return empty_response_json(chart_type="pie")
 
         # Filter expenses only
-        expense_df = df[df["type"].isin(["expense", "debit"])].copy()
+        expense_df = df[df["type"] == "expense"].copy()
 
         if expense_df.empty:
             return empty_response_json(chart_type="pie", message="No expense transactions found")
@@ -328,7 +328,7 @@ def budget_comparison_tool(user_id: str, budget_json: str) -> str:
         # Filter expenses for current month
         current_month_df = df[
             (df["month"] == current_month) &
-            (df["type"].isin(["expense", "debit"]))
+            (df["type"] == "expense")
         ]
 
         # Calculate spending by category
