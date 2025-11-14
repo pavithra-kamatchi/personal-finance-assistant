@@ -5,11 +5,6 @@ from datetime import datetime, timedelta
 from backend.tools.retriever_tool import fetch_user_transactions
 import json
 
-
-# ========================
-# Data Fetching Utilities
-# ========================
-
 #get user transactions within a timeframe and add month column
 def get_user_transactions(user_id: str, months: int = 12) -> pd.DataFrame:
     df = fetch_user_transactions(user_id)
@@ -20,15 +15,10 @@ def get_user_transactions(user_id: str, months: int = 12) -> pd.DataFrame:
     df["month"] = df["transaction_date"].dt.to_period("M").astype(str)
     return df
 
-
+#Filter transactions by type (income/expense)
 def filter_by_type(df: pd.DataFrame, transaction_type: str) -> pd.DataFrame:
-    """Filter transactions by type (income/expense)."""
     return df[df["type"] == transaction_type].copy()
 
-
-# ========================
-# Aggregation Utilities
-# ========================
 
 #get transactions summarized by month (income, expenses, net savings)
 def summarize_monthly(df: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -38,10 +28,10 @@ def summarize_monthly(df: pd.DataFrame) -> List[Dict[str, Any]]:
 
         # Handle both type conventions
         income = (
-            mdf[mdf["type"].isin(["income"])]["transaction_amount"].sum()
+            mdf[mdf["type"] == "income"]["transaction_amount"].sum()
         )
         expenses = (
-            mdf[mdf["type"].isin(["expense"])]["transaction_amount"].sum()
+            mdf[mdf["type"] == "expense"]["transaction_amount"].sum()
         )
 
         summary.append({
@@ -73,11 +63,6 @@ def aggregate_by_category(df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
 
     return category_summary
 
-
-# ========================
-# Formatting Utilities
-# ========================
-
 #format chart data as JSON for frontend
 def chart_json(chart_type: str, labels: List, datasets: List[Dict], metadata: Dict) -> str:
     return json.dumps({
@@ -106,9 +91,6 @@ def empty_response_json(chart_type: str = None, message: str = "No data found") 
     return json.dumps(response, indent=2)
 
 
-# ========================
-# Transaction Formatting
-# ========================
 #format a single transaction record as a dictionary
 def format_transaction_record(row: pd.Series) -> Dict[str, Any]:
     return {
@@ -122,6 +104,7 @@ def format_transaction_record(row: pd.Series) -> Dict[str, Any]:
         "account": str(row["account_name"]) if "account_name" in row and pd.notnull(row["account_name"]) else None
     }
 
+#format a list of atmost 10 transaction records and drop duplicates.
 def format_transactions_list(df: pd.DataFrame, limit: int = 10) -> List[Dict[str, Any]]:
     # drop duplicates
     df = df.drop_duplicates(subset=["id", "transaction_date", "transaction_amount"])
@@ -130,10 +113,6 @@ def format_transactions_list(df: pd.DataFrame, limit: int = 10) -> List[Dict[str
         format_transaction_record(row)
         for _, row in df.head(limit).iterrows()
     ]
-
-# ========================
-# Category Breakdown Utilities
-# ========================
 
 #format category summary as a list of detailed breakdowns
 def format_category_breakdown(category_summary: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -146,11 +125,6 @@ def format_category_breakdown(category_summary: pd.DataFrame) -> List[Dict[str, 
         }
         for _, row in category_summary.iterrows()
     ]
-
-
-# ========================
-# Statistical Utilities
-# ========================
 
 #calculate common statistics for a list of numerical values
 def calculate_statistics(values: List[float]) -> Dict[str, float]:
