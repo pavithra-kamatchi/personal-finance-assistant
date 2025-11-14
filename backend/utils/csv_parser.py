@@ -5,16 +5,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+#clean row data by removing NaN values and converting to JSON-serializable format
 def clean_row_data(row: dict) -> dict:
-    """
-    Clean row data by removing NaN values and converting to JSON-serializable format.
-
-    Args:
-        row: Dictionary representing a CSV row
-
-    Returns:
-        Cleaned dictionary
-    """
     cleaned = {}
     for key, value in row.items():
         # Skip NaN/None values
@@ -29,17 +21,8 @@ def clean_row_data(row: dict) -> dict:
 
     return cleaned
 
+#convert entire row to descriptive string that LLM can parse
 def row_to_description(row: dict) -> str:
-    """
-    Convert an entire CSV row into a descriptive string that the LLM can parse.
-    This allows the LLM to intelligently extract transaction details regardless of column names.
-
-    Args:
-        row: Dictionary representing a CSV row
-
-    Returns:
-        A formatted string containing all row information
-    """
     cleaned_row = clean_row_data(row)
 
     if not cleaned_row:
@@ -56,31 +39,13 @@ def row_to_description(row: dict) -> str:
 
     return description
 
+#validate that row has at least some data
 def validate_row(row: dict) -> bool:
-    """
-    Validate that a row has at least some data.
-
-    Args:
-        row: Dictionary representing a CSV row
-
-    Returns:
-        True if row has data, False otherwise
-    """
     cleaned = clean_row_data(row)
     return len(cleaned) > 0
 
+#main function to parse CSV bytes into LLM-friendly format
 def parse_csv_bytes(file_bytes: bytes) -> List[dict]:
-    """
-    Parse CSV file bytes and convert each row into a format the LLM can understand.
-    Instead of trying to map columns, we pass the entire row data to the LLM
-    which will intelligently extract transaction details.
-
-    Args:
-        file_bytes: Raw bytes of the CSV file
-
-    Returns:
-        List of dictionaries with 'description' field containing all row data
-    """
     try:
         # Try UTF-8 encoding first
         csv_string = file_bytes.decode('utf-8')
