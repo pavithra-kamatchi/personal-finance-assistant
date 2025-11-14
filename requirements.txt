@@ -27,3 +27,4 @@ sqlalchemy
 pandas
 fastapi
 uvicorn
+diskcache
