@@ -17,7 +17,7 @@ class TransactionDetails(BaseModel):
     category: Optional[str] = Field(description="The predicted category of the transaction, such as 'Groceries', 'Utilities', 'Dining', etc., based on the transaction description and merchant.")
     merchant: Optional[str] = Field(default = None, description = "The merchant or vendor associated with the transaction, inferred from the transaction description (e.g., 'Amazon', 'Starbucks').")
     account_name: Optional[str] = Field(default=None, description= "The name of the account from which the transaction was made (e.g., 'Checking', 'Savings').")
-    type: Optional[str] = Field(default=None, description= "The type of transaction, typically 'debit' or 'credit'.")
+    type: Optional[str] = Field(default=None, description= "The type of transaction: 'income' for money earned, 'expense' for money spent.")
     
 class AuthInput(BaseModel):
     email: str
