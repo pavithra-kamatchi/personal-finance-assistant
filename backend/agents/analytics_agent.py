@@ -1,21 +1,19 @@
 import os
 import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
-from typing import Literal, Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import ToolNode
 
-# Import all analytics tools
+# Import all analytics tools - we'll call them directly as functions
 from backend.tools.analytics_tool import (
     monthly_summary_tool,
     spending_over_time_tool,
     income_vs_expense_tool,
     top_categories_tool,
     recent_transactions_tool,
-    generate_insights_tool
+    budget_comparison_tool
 )
 
 from backend.tools.anomaly_tool import anomaly_detection_tool
@@ -27,341 +25,284 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     raise ValueError("API key for OpenAI not found. Please set it in the .env file.")
 
-# Initialize LLM
-openai_llm = ChatOpenAI(
+# Initialize LLM for insights generation
+llm = ChatOpenAI(
     model="gpt-4o-mini",
-    temperature=0.0,
+    temperature=0.7,
     openai_api_key=openai_api_key
 )
 
-# Define all analytics tools
-tools = [
-    monthly_summary_tool,
-    spending_over_time_tool,
-    income_vs_expense_tool,
-    top_categories_tool,
-    recent_transactions_tool,
-    anomaly_detection_tool,
-    generate_insights_tool
-]
-
-# Bind tools to the LLM
-llm_with_tools = openai_llm.bind_tools(tools)
-
-
-# ========================
-# LangGraph State and Nodes
-# ========================
-
-class AnalyticsAgentState(MessagesState):
-    """Extended state for the Analytics agent with memory."""
-    user_id: str
-    analytics_results: Dict[str, Any] = {}
-
-
-def call_model(state: AnalyticsAgentState):
-    """Agent node that calls the LLM with tools."""
-    messages = state["messages"]
-    response = llm_with_tools.invoke(messages)
-    return {"messages": [response]}
-
-
-def should_continue(state: AnalyticsAgentState) -> Literal["tools", "end"]:
-    """Determine whether to continue with tools or end."""
-    messages = state["messages"]
-    last_message = messages[-1]
-
-    # If there are tool calls, continue to tools node
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "tools"
-
-    # Otherwise, end
-    return "end"
-
-
-# ========================
-# Build LangGraph Workflow
-# ========================
-
-workflow = StateGraph(AnalyticsAgentState)
-
-# Add nodes
-workflow.add_node("agent", call_model)
-workflow.add_node("tools", ToolNode(tools))
-
-# Add edges
-workflow.add_edge(START, "agent")
-workflow.add_conditional_edges(
-    "agent",
-    should_continue,
-    {
-        "tools": "tools",
-        "end": END
-    }
-)
-workflow.add_edge("tools", "agent")
-
-# Add memory for conversation persistence
-memory = MemorySaver()
-
-# Compile the graph with memory
-analytics_agent = workflow.compile(checkpointer=memory)
-
-
-# ========================
-# Main Analytics Function
-# ========================
-
-def generate_analytics(
-    user_id: str,
-    analytics_types: Optional[List[str]] = None,
-    months: int = 6,
-    max_iterations: int = 20
-) -> Dict[str, Any]:
-    """
-    Main function to generate comprehensive analytics for a user.
-    Uses LangGraph agent to orchestrate multiple analytics tools.
-
-    Args:
-        user_id: User ID to fetch transactions for
-        analytics_types: List of analytics to generate (if None, generates all)
-                        Options: ["monthly_summary", "spending_trends", "income_vs_expense",
-                                 "top_categories", "recent_transactions", "anomalies"]
-        months: Number of months to analyze (default: 6)
-        max_iterations: Maximum number of agent iterations (default: 20)
-
-    Returns:
-        Dictionary containing all analytics results with insights
-    """
-    # Default to all analytics if not specified
-    if analytics_types is None:
-        analytics_types = [
-            "monthly_summary",
-            "spending_trends",
-            "income_vs_expense",
-            "top_categories",
-            "recent_transactions",
-            "anomalies"
-        ]
-
-    # Create system message with instructions
-    system_message = f"""You are a financial analytics assistant. Your job is to help users understand their spending patterns and financial health.
-
-User ID: {user_id}
-Months to analyze: {months}
-
-You have access to the following analytics tools:
-1. monthly_summary_tool - Calculate total income, expenses, and net savings per month
-2. spending_over_time_tool - Get spending trends over time for line charts
-3. income_vs_expense_tool - Compare income vs expenses for dual charts
-4. top_categories_tool - Get top spending categories for pie/bar charts
-5. recent_transactions_tool - Get the most recent 10 transactions
-6. anomaly_detection_tool - Detect unusual/anomalous transactions
-7. generate_insights_tool - Generate AI insights for any analytics data
-
-Your task is to generate the following analytics: {', '.join(analytics_types)}
-
-For each analytics type:
-1. Call the appropriate tool with the user_id
-2. After getting the data, call generate_insights_tool to create meaningful insights
-3. Ensure all data is in JSON format for the frontend
-
-Important:
-- Always pass the user_id to tools that require it
-- For time-based tools, use months={months}
-- Generate insights for EACH chart/analytics type
-- Be comprehensive and ensure all requested analytics are completed
-"""
-
-    # Create user message
-    user_message = f"""Please generate comprehensive financial analytics for me.
-
-Analytics requested: {', '.join(analytics_types)}
-
-For each analytics:
-1. Fetch the data using the appropriate tool
-2. Generate AI insights explaining what the data means
-3. Return everything in JSON format
-
-Make sure to complete all analytics and provide insights for each."""
-
-    # Invoke the agent with memory
-    config = {
-        "configurable": {"thread_id": user_id},
-        "recursion_limit": max_iterations
-    }
-
+# Safely run a tool and parse JSON output
+def run_tool_safely(tool_func, **kwargs) -> Dict[str, Any]:
     try:
-        result = analytics_agent.invoke(
-            {
-                "messages": [
-                    SystemMessage(content=system_message),
-                    HumanMessage(content=user_message)
-                ],
-                "user_id": user_id,
-                "analytics_results": {}
-            },
-            config=config
-        )
-
-        # Extract analytics results from tool messages
-        analytics_results = extract_analytics_from_response(result)
-
-        # Get the final AI response
-        final_message = result["messages"][-1]
-        response_text = final_message.content if hasattr(final_message, "content") else str(final_message)
-
-        return {
-            "status": "success",
-            "user_id": user_id,
-            "analytics": analytics_results,
-            "summary": response_text,
-            "messages": result["messages"]
-        }
-
+        result_str = tool_func.invoke(kwargs)
+        return json.loads(result_str)
     except Exception as e:
         return {
             "status": "error",
             "error": str(e)
         }
 
+# run all tools concurrently by executing all tools in parallel and collect results and store in a dictionary 
+def run_analytics_tools_concurrently(
+    user_id: str,
+    months: int = 6,
+    budget_data: Optional[Dict[str, float]] = None
+) -> Dict[str, Any]:
+    results = {}
 
-def extract_analytics_from_response(response: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Extract analytics data from agent response messages.
-    Parses tool outputs and organizes them by analytics type.
-
-    Args:
-        response: Agent response containing messages
-
-    Returns:
-        Dictionary with organized analytics results
-    """
-    from langchain_core.messages import ToolMessage
-
-    messages = response.get("messages", [])
-    analytics_results = {}
-
-    # Map of tool names to analytics types
-    tool_mapping = {
-        "monthly_summary_tool": "monthly_summary",
-        "spending_over_time_tool": "spending_trends",
-        "income_vs_expense_tool": "income_vs_expense",
-        "top_categories_tool": "top_categories",
-        "recent_transactions_tool": "recent_transactions",
-        "anomaly_detection_tool": "anomalies",
-        "generate_insights_tool": "insights"
+    # Define all tool executions
+    tool_tasks = {
+        "monthly_summary": (monthly_summary_tool, {"user_id": user_id, "months": months}),
+        "spending_trends": (spending_over_time_tool, {"user_id": user_id, "months": months}),
+        "income_vs_expense": (income_vs_expense_tool, {"user_id": user_id, "months": months}),
+        "top_categories": (top_categories_tool, {"user_id": user_id, "limit": 10, "months": months}),
+        "recent_transactions": (recent_transactions_tool, {"user_id": user_id, "limit": 10}),
+        "anomalies": (anomaly_detection_tool, {"user_id": user_id, "months": months})
     }
 
-    # Extract data from tool messages
-    for i, msg in enumerate(messages):
-        if isinstance(msg, ToolMessage):
-            content = msg.content
-            tool_name = msg.name if hasattr(msg, "name") else None
+    # Add budget comparison if budget data is provided
+    if budget_data:
+        tool_tasks["budget_comparison"] = (
+            budget_comparison_tool,
+            {"user_id": user_id, "budget_json": json.dumps(budget_data)}
+        )
 
+    # Execute all tools concurrently
+    with ThreadPoolExecutor(max_workers=len(tool_tasks)) as executor:
+        # Submit all tasks
+        future_to_name = {
+            executor.submit(run_tool_safely, tool_func, **kwargs): name
+            for name, (tool_func, kwargs) in tool_tasks.items()
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_name):
+            name = future_to_name[future]
             try:
-                # Parse JSON content
-                data = json.loads(content)
+                results[name] = future.result()
+            except Exception as e:
+                results[name] = {
+                    "status": "error",
+                    "error": str(e)
+                }
 
-                # Determine analytics type
-                analytics_type = tool_mapping.get(tool_name, "unknown")
-
-                # Handle insights separately (they're linked to specific chart types)
-                if analytics_type == "insights":
-                    chart_type = data.get("chart_type")
-                    if chart_type:
-                        # Add insights to the corresponding analytics type
-                        target_type = tool_mapping.get(f"{chart_type}_tool", chart_type)
-                        if target_type in analytics_results:
-                            analytics_results[target_type]["insights"] = data.get("insights", "")
-                        else:
-                            analytics_results[f"{chart_type}_insights"] = data.get("insights", "")
-                else:
-                    # Store analytics data
-                    analytics_results[analytics_type] = data
-
-            except json.JSONDecodeError:
-                # If not JSON, store as raw content
-                analytics_type = tool_mapping.get(tool_name, "unknown")
-                analytics_results[analytics_type] = {"raw": content}
-
-    return analytics_results
+    return results
 
 
-# ========================
-# Convenience Functions
-# ========================
+#Generate comprehensive insights from all analytics data in a single LLM call
+def generate_comprehensive_insights(analytics_data: Dict[str, Any]) -> str:
+    # Build comprehensive prompt with all analytics data
+    prompt = f"""You are a financial analyst providing comprehensive insights about a user's financial data.
 
-def get_dashboard_analytics(user_id: str) -> Dict[str, Any]:
+Below is the complete financial analytics data. Provide a comprehensive analysis covering ALL aspects:
+
+=== MONTHLY SUMMARY ===
+{json.dumps(analytics_data.get('monthly_summary', {}), indent=2)}
+
+=== SPENDING TRENDS ===
+{json.dumps(analytics_data.get('spending_trends', {}), indent=2)}
+
+=== INCOME VS EXPENSE ===
+{json.dumps(analytics_data.get('income_vs_expense', {}), indent=2)}
+
+=== TOP SPENDING CATEGORIES ===
+{json.dumps(analytics_data.get('top_categories', {}), indent=2)}
+
+=== RECENT TRANSACTIONS ===
+{json.dumps(analytics_data.get('recent_transactions', {}), indent=2)}
+
+=== ANOMALOUS TRANSACTIONS ===
+{json.dumps(analytics_data.get('anomalies', {}), indent=2)}
+
+{"=== BUDGET COMPARISON ===" if analytics_data.get('budget_comparison') else ""}
+{json.dumps(analytics_data.get('budget_comparison', {}), indent=2) if analytics_data.get('budget_comparison') else ""}
+
+Please provide a comprehensive financial analysis with the following structure:
+
+1. **Overall Financial Health**: Summarize the user's financial situation (income, expenses, savings rate)
+
+2. **Spending Patterns**: Analyze spending trends, top categories, and any concerning patterns
+
+3. **Budget Performance** (if applicable): How well they're staying within budget limits
+
+4. **Anomalies & Alerts**: Highlight any unusual transactions or red flags
+
+5. **Actionable Recommendations**: Provide 3-5 specific, actionable recommendations to improve their financial health
+
+Keep insights clear, concise, and actionable. Use bullet points where appropriate."""
+
+    try:
+        response = llm.invoke(prompt)
+        return response.content
+    except Exception as e:
+        return f"Error generating insights: {str(e)}"
+
+
+#main function to generate dashboard analytics
+def generate_dashboard_analytics(
+    user_id: str,
+    months: int = 6,
+    budget_data: Optional[Dict[str, float]] = None
+) -> Dict[str, Any]:
     """
-    Get all analytics needed for a dashboard view.
-    This is a convenience function that requests all analytics types.
+    Generate complete dashboard analytics with a single LLM call for insights.
+    This is optimized for low latency by:
+    1. Running all analytics tools concurrently
+    2. Making only ONE LLM call to generate comprehensive insights
 
     Args:
         user_id: User ID to fetch transactions for
+        months: Number of months to analyze (default: 6)
+        budget_data: Optional budget data dict (e.g., {"Groceries": 500, "Dining": 300})
 
     Returns:
-        Complete analytics package for dashboard
+        Dictionary containing:
+        - status: "success" or "error"
+        - user_id: The user ID
+        - analytics: All analytics data
+        - insights: Comprehensive AI-generated insights
+        - execution_time: Time taken to generate analytics
     """
-    return generate_analytics(
-        user_id=user_id,
-        analytics_types=None,  # All analytics
-        months=6
-    )
+    import time
+    start_time = time.time()
+
+    try:
+        # Step 1: Run all analytics tools concurrently
+        analytics_results = run_analytics_tools_concurrently(
+            user_id=user_id,
+            months=months,
+            budget_data=budget_data
+        )
+
+        # Step 2: Generate comprehensive insights in a single LLM call
+        comprehensive_insights = generate_comprehensive_insights(analytics_results)
+
+        execution_time = time.time() - start_time
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "analytics": analytics_results,
+            "insights": comprehensive_insights,
+            "execution_time": round(execution_time, 2),
+            "metadata": {
+                "months_analyzed": months,
+                "has_budget_comparison": budget_data is not None,
+                "analytics_count": len(analytics_results)
+            }
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "user_id": user_id
+        }
 
 
+#get specific analytics without comprehensive insights for individual chart updates
 def get_specific_analytics(
     user_id: str,
     analytics_type: str,
-    months: int = 6
+    months: int = 6,
+    budget_data: Optional[Dict[str, float]] = None
 ) -> Dict[str, Any]:
     """
-    Get a specific type of analytics with insights.
+    Get a specific type of analytics (without comprehensive insights).
+    Useful for individual chart updates.
 
     Args:
         user_id: User ID to fetch transactions for
-        analytics_type: Single analytics type to generate
+        analytics_type: Type of analytics ("monthly_summary", "spending_trends", etc.)
         months: Number of months to analyze
+        budget_data: Optional budget data for budget comparison
 
     Returns:
-        Specific analytics results with insights
+        Specific analytics result
     """
-    return generate_analytics(
-        user_id=user_id,
-        analytics_types=[analytics_type],
-        months=months
-    )
+    tool_map = {
+        "monthly_summary": (monthly_summary_tool, {"user_id": user_id, "months": months}),
+        "spending_trends": (spending_over_time_tool, {"user_id": user_id, "months": months}),
+        "income_vs_expense": (income_vs_expense_tool, {"user_id": user_id, "months": months}),
+        "top_categories": (top_categories_tool, {"user_id": user_id, "limit": 10, "months": months}),
+        "recent_transactions": (recent_transactions_tool, {"user_id": user_id, "limit": 10}),
+        "anomalies": (anomaly_detection_tool, {"user_id": user_id, "months": months}),
+        "budget_comparison": (budget_comparison_tool, {"user_id": user_id, "budget_json": json.dumps(budget_data or {})})
+    }
+
+    if analytics_type not in tool_map:
+        return {
+            "status": "error",
+            "error": f"Unknown analytics type: {analytics_type}"
+        }
+
+    tool_func, kwargs = tool_map[analytics_type]
+    return run_tool_safely(tool_func, **kwargs)
 
 
-# ========================
-# Testing
-# ========================
-
+#testing the analytics agent
 if __name__ == "__main__":
-    # Test the analytics agent
-    test_user = "123e4567-e89b-12d3-a456-426614174000"
+    # Test the analytics agent with the new concurrent approach
+    test_user = "af34934d-a0ac-422e-9dc6-e15553635846"
 
-    print("Testing Analytics Agent")
+    print("=" * 80)
+    print("Testing Analytics Agent (LangChain - Concurrent Execution)")
+    print("=" * 80)
+
+    # Sample budget data
+    test_budget = {
+        "Groceries": 500.0,
+        "Dining": 300.0,
+        "Transportation": 200.0,
+        "Entertainment": 150.0
+    }
 
     try:
-        # Test getting all analytics
-        result = get_dashboard_analytics(user_id=test_user)
+        # Test getting all analytics with budget
+        print("\n[1] Generating dashboard analytics with budget comparison...")
+        result = generate_dashboard_analytics(
+            user_id=test_user,
+            months=6,
+            budget_data=test_budget
+        )
 
-        print("\nStatus:", result.get("status"))
-        print("\nAnalytics Generated:")
+        print(f"\nStatus: {result.get('status')}")
+        print(f"Execution Time: {result.get('execution_time')}s")
+        print(f"\nMetadata:")
+        print(f"  - Months Analyzed: {result.get('metadata', {}).get('months_analyzed')}")
+        print(f"  - Analytics Count: {result.get('metadata', {}).get('analytics_count')}")
+        print(f"  - Has Budget: {result.get('metadata', {}).get('has_budget_comparison')}")
+
+        print("\n" + "-" * 80)
+        print("Analytics Generated:")
+        print("-" * 80)
         for analytics_type, data in result.get("analytics", {}).items():
-            print(f"\n  - {analytics_type}:")
             if isinstance(data, dict):
-                print(f"    Status: {data.get('status', 'N/A')}")
+                status = data.get("status", "N/A")
+                print(f"\n  ✓ {analytics_type}: {status}")
                 if "metadata" in data:
-                    print(f"    Metadata: {data['metadata']}")
+                    print(f"    Metadata: {json.dumps(data['metadata'], indent=6)}")
+                if data.get("status") == "error":
+                    print(f"    Error: {data.get('error')}")
 
         print("\n" + "=" * 80)
-        print("Summary:")
-        print(result.get("summary", "No summary available"))
+        print("COMPREHENSIVE INSIGHTS:")
+        print("=" * 80)
+        print(result.get("insights", "No insights available"))
         print("=" * 80)
 
+        # Test getting specific analytics
+        print("\n\n[2] Testing specific analytics retrieval...")
+        specific_result = get_specific_analytics(
+            user_id=test_user,
+            analytics_type="top_categories",
+            months=6
+        )
+        print(f"\nTop Categories Result:")
+        print(json.dumps(specific_result, indent=2)[:500] + "...")
+
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"\n Error: {e}")
         import traceback
         traceback.print_exc()
