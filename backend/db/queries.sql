@@ -58,5 +58,5 @@ on budgets for delete
 using ((select auth.uid()) = user_id);
 
 -- Add index to optimize foreign key performance
-create index concurrently if not exists idx_budgets_user_id
+create index if not exists idx_budgets_user_id
   on budgets(user_id);
