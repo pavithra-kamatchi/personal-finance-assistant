@@ -6,7 +6,7 @@ from backend.utils.csv_parser import parse_csv_bytes
 from fastapi import Request
 from backend.utils.cache_manager import update_user_cache, cache
 from backend.agents.sql_nl_agent import text_to_sql
-from backend.agents.analytics_agent import analytics_agent
+from backend.agents.analytics_agent import generate_dashboard_analytics
 transactions_router = APIRouter()
 transaction_agent= TransactionClassifierAgent()
 import pandas as pd
@@ -41,7 +41,7 @@ async def uploaded_transactions(background_tasks: BackgroundTasks, file: UploadF
     cache.delete(dashboard_key)
     print(f"🧹 Invalidated dashboard cache for {user_id}")
 
-    background_tasks.add_task(analytics_agent.generate_dashboard, user_id)
+    background_tasks.add_task(generate_dashboard_analytics, user_id)
     print("Background task to regenerate dashboard analytics for {} started.".format(user_id))
 
     return {"message": f"{len(results)} transactions stored successfully and cache updated."}

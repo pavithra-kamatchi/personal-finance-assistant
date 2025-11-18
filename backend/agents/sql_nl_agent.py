@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.tools import tool
 from sqlalchemy import inspect
@@ -14,7 +14,7 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
 from typing import Literal
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 # Import tools from sql_utils
 from backend.utils.sql_utils import (
@@ -179,7 +179,7 @@ def should_continue(state: AgentState) -> Literal["tools", "end"]:
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "tools"
 
-    # Otherwise, end
+    # else end
     return "end"
 
 # Build the LangGraph workflow
@@ -207,26 +207,14 @@ memory = MemorySaver()
 # Compile the graph with memory
 nl2sql_agent = workflow.compile(checkpointer=memory)
 
-# Main function to interact with the agent
+# Main function to interact with the agent and convert NL to SQL and execute
 def text_to_sql(
     question: str,
     user_id: str,
     user_conv: list = None,
     max_iterations: int = 15
 ):
-    """
-    Main function to convert natural language to SQL and execute.
-    This orchestrates the entire workflow using the LangGraph agent.
-
-    Args:
-        question: Natural language question about transactions
-        user_id: User ID for filtering and session management
-        user_conv: Conversation history (optional)
-        max_iterations: Maximum number of agent iterations
-
-    Returns:
-        Dict with SQL query, results, and response
-    """
+    
     if user_conv is None:
         user_conv = []
 
@@ -291,12 +279,9 @@ Always ensure the query filters by user_id for security."""
         return {"error": str(e)}
 
 
-# Legacy function for backward compatibility
+# Legacy function for backward compatibility (calls the main agent)
 def run_validated_sql_agent(question: str, user_session_id: str, user_conv: list = None):
-    """
-    Legacy wrapper function for backward compatibility.
-    Calls the new text_to_sql function.
-    """
+
     result = text_to_sql(question=question, user_id=user_session_id, user_conv=user_conv)
 
     if "error" in result:
