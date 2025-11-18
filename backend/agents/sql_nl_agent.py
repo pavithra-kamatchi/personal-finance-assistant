@@ -98,6 +98,9 @@ SQLQuery: SELECT category, SUM(transaction_amount) as total FROM transactions WH
 
 Question: Show my average transaction amount by merchant.
 SQLQuery: SELECT merchant_name, AVG(transaction_amount) FROM transactions WHERE user_id = '{user_id}' GROUP BY merchant_name;
+
+Question: How much is my budget and how much can I still spend?
+SQLQuery: SELECT b.category, b.budget_amount, COALESCE(SUM(t.transaction_amount), 0) as spent, b.budget_amount - COALESCE(SUM(t.transaction_amount), 0) as remaining FROM budgets b LEFT JOIN transactions t ON b.category = t.category AND b.user_id = t.user_id WHERE b.user_id = '{user_id}' GROUP BY b.category, b.budget_amount;
 """
 
 # Create the NL to SQL tool using the prompt template
@@ -235,14 +238,15 @@ def text_to_sql(
 
 User ID: {user_id}
 
-Follow these steps:
+Follow these steps IN ORDER:
 1. Use the 'nl_to_sql' tool to convert the user's question into a SQL query
 2. Use the 'validate_sql_query' tool to validate the generated SQL
 3. If valid, use the 'execute_sql_query' tool to run the query
-4. Use the 'format_sql_results' tool to format the results nicely
-5. Provide a clear summary of the results to the user
+4. After getting the query results, provide a clear, conversational summary directly to the user
 
-If validation fails, try to fix the SQL and validate again.
+IMPORTANT: After step 4, DO NOT call any more tools. Just provide your final answer and STOP.
+
+If validation fails, try to fix the SQL and validate again (maximum 2 attempts).
 Always ensure the query filters by user_id for security."""
 
     # Create the user message
