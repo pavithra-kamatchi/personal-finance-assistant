@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from backend.api.routes.auth import get_current_user
-from backend.agents.analytics_agent import get_dashboard_analytics
+from backend.api.routes.auth import get_current_user, supabase
+from backend.agents.analytics_agent import generate_dashboard_analytics
 from backend.utils.cache_manager import cache
 import time
 import json
@@ -22,7 +22,19 @@ def get_dashboard(user_id: str = Depends(get_current_user)):
             return cached
         else:
             print(f"Regenerating dashboard for {user_id}")
-            results = get_dashboard_analytics(user_id)
+
+            # Fetch budget data from Supabase
+            budget_data = None
+            try:
+                budget_result = supabase.table("budgets").select("category, budget_limit").eq("user_id", user_id).execute()
+                if budget_result.data:
+                    # Transform to dict format: {"Groceries": 500, "Dining": 300}
+                    budget_data = {row["category"]: row["budget_limit"] for row in budget_result.data}
+                    print(f"Fetched budget data for {len(budget_data)} categories")
+            except Exception as e:
+                print(f"Error fetching budget data: {e}")
+
+            results = generate_dashboard_analytics(user_id, budget_data=budget_data)
 
             cache.set(dashboard_key, json.dumps({
             "status": "success",
