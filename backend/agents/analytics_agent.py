@@ -91,11 +91,11 @@ def run_analytics_tools_concurrently(
 
 
 #Generate comprehensive insights from all analytics data in a single LLM call
-def generate_comprehensive_insights(analytics_data: Dict[str, Any]) -> str:
+def generate_comprehensive_insights(analytics_data: Dict[str, Any]) -> Dict[str, str]:
     # Build comprehensive prompt with all analytics data
-    prompt = f"""You are a financial analyst providing comprehensive insights about a user's financial data.
+    prompt = f"""You are a financial analyst providing insights about a user's financial data.
 
-Below is the complete financial analytics data. Provide a comprehensive analysis covering ALL aspects:
+Below is the complete financial analytics data:
 
 === MONTHLY SUMMARY ===
 {json.dumps(analytics_data.get('monthly_summary', {}), indent=2)}
@@ -118,25 +118,38 @@ Below is the complete financial analytics data. Provide a comprehensive analysis
 {"=== BUDGET COMPARISON ===" if analytics_data.get('budget_comparison') else ""}
 {json.dumps(analytics_data.get('budget_comparison', {}), indent=2) if analytics_data.get('budget_comparison') else ""}
 
-Please provide a comprehensive financial analysis with the following structure:
+Analyze this data and provide specific insights for each chart type. Return ONLY a JSON object with these keys:
+- "income_vs_expense": 2-3 sentences analyzing income vs expense trends
+- "spending_trends": 2-3 sentences analyzing spending patterns over time
+- "top_categories": 2-3 sentences about top spending categories
+- "budget_comparison": 2-3 sentences about budget performance (or empty string if no budget data)
+- "overall": 3-4 sentences with overall financial health summary and recommendations
 
-1. **Overall Financial Health**: Summarize the user's financial situation (income, expenses, savings rate)
-
-2. **Spending Patterns**: Analyze spending trends, top categories, and any concerning patterns
-
-3. **Budget Performance** (if applicable): How well they're staying within budget limits
-
-4. **Anomalies & Alerts**: Highlight any unusual transactions or red flags
-
-5. **Actionable Recommendations**: Provide 3-5 specific, actionable recommendations to improve their financial health
-
-Keep insights clear, concise, and actionable. Use bullet points where appropriate."""
+Keep insights clear, concise, and actionable. Return ONLY valid JSON, no markdown formatting."""
 
     try:
         response = llm.invoke(prompt)
-        return response.content
+        # Parse the JSON response
+        insights_json = json.loads(response.content)
+        return insights_json
+    except json.JSONDecodeError as e:
+        # If JSON parsing fails, return a structured error with empty insights
+        print(f"Failed to parse insights JSON: {e}")
+        return {
+            "income_vs_expense": "",
+            "spending_trends": "",
+            "top_categories": "",
+            "budget_comparison": "",
+            "overall": "Unable to generate insights at this time."
+        }
     except Exception as e:
-        return f"Error generating insights: {str(e)}"
+        return {
+            "income_vs_expense": "",
+            "spending_trends": "",
+            "top_categories": "",
+            "budget_comparison": "",
+            "overall": f"Error generating insights: {str(e)}"
+        }
 
 
 #main function to generate dashboard analytics
