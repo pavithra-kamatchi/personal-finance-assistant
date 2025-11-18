@@ -359,6 +359,26 @@ def budget_comparison_tool(user_id: str, budget_json: str) -> str:
         # Sort by percentage used (descending)
         comparison.sort(key=lambda x: x["percentage_used"], reverse=True)
 
+        # Transform to Chart.js format for frontend
+        labels = [item["category"] for item in comparison]
+        budget_values = [item["budget"] for item in comparison]
+        actual_values = [item["actual"] for item in comparison]
+
+        datasets = [
+            {
+                "label": "Budget",
+                "data": budget_values,
+                "backgroundColor": "#2A5FFF",
+                "borderColor": "#2A5FFF"
+            },
+            {
+                "label": "Actual",
+                "data": actual_values,
+                "backgroundColor": "#601EF9",
+                "borderColor": "#601EF9"
+            }
+        ]
+
         metadata = {
             "total_budget": round(float(total_budget), 2),
             "total_spent": round(float(total_spent), 2),
@@ -370,7 +390,9 @@ def budget_comparison_tool(user_id: str, budget_json: str) -> str:
 
         return json.dumps({
             "status": "success",
-            "data": comparison,
+            "chart_type": "bar",
+            "data": {"labels": labels, "datasets": datasets},
+            "breakdown": comparison,
             "metadata": metadata
         }, indent=2)
 
