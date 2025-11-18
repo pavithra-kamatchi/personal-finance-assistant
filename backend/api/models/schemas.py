@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import List
 from typing import Optional
 from datetime import date
 
@@ -31,3 +32,12 @@ class Budget(BaseModel):
     monthly_limit: float = Field(description="Monthly budget limit for this category")
     period: Optional[str] = Field(default="monthly", description="Budget period (e.g., 'monthly', 'weekly', 'yearly')")
     created_at: Optional[str] = Field(default=None, description="Timestamp when budget was created")
+
+
+class BudgetCategory(BaseModel):
+    category: str
+    limit: float
+
+class BudgetRequest(BaseModel):
+    total_budget: float
+    categories: List[BudgetCategory]
